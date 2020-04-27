@@ -2,15 +2,13 @@
 
 # Programa base para utilizar de base en tus proyectos MQTT con ESP8266
 
-Desarrollado con Visual Code + PlatformIO + Plataforma Espressif Arduino + ESP8266 RTOS SDK
+Desarrollado con Visual Code + PlatformIO en Framework Arduino
 
 Implementa las comunicaciones WIFI y MQTT asi como la configuracion de las mismas via comandos
 
 Implementa el envio de comandos via puerto serie o MQTT
 
-Implementa el uso de tareas para multiproceso y para usar ambos cores
-
-Implementa un timer con soporte para FPU (unidad de coma flotante) para utilizar en tareas que requieran mayor velocidad que una Task
+Implementa el uso de tareas para multiproceso con la libreria TaskScheduler
 
 Incluye la clase MiProyecto para desarrollar nuestro proyecto.
 
