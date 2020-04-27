@@ -4,7 +4,7 @@
  #include "ConfigCom.h"
  #include <string>						// Para el manejo de cadenas
  #include <WString.h>
- #include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
+ #include <FS.h>							// Libreria Sistema de Ficheros
  #include <Arduino.h>
  #include <ArduinoJson.h>				// OJO: Tener instalada una version NO BETA (a dia de hoy la estable es la 5.13.4). Alguna pata han metido en la 6
     

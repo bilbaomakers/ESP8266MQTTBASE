@@ -2,18 +2,18 @@
 
 /*
 
-ESP32MQTTBASE 1.1
-Programa para utilizar de base en tus proyectos MQTT con ESP32
-Desarrollado con Visual Code + PlatformIO + Plataforma Espressif 32 Arduino
+ESP8266MQTTBASE 1.1
+Programa para utilizar de base en tus proyectos MQTT con ESP8266
+Desarrollado con Visual Code + PlatformIO + ESP8266 RTOS SDK
 Implementa las comunicaciones WIFI y MQTT asi como la configuracion de las mismas via comandos
 Implementa el envio de comandos via puerto serie o MQTT
 Implementa el uso de tareas para multiproceso y para usar ambos cores
 Implementa un timer con soporte para FPU (unidad de coma flotante) para utilizar en tareas que requieran mayor velocidad que una Task
 Incluye la clase MiProyecto para desarrollar nuestro proyecto.
 
-Author: Diego Maroto - BilbaoMakers 2019 - info@bilbaomakers.org - dmarofer@diegomaroto.net
+Author: Diego Maroto - BilbaoMakers 2020 - info@bilbaomakers.org - dmarofer@diegomaroto.net
 
-https://github.com/bilbaomakers/ESP32MQTTBASE
+https://github.com/bilbaomakers/ESP8266MQTTBASE
 
 https://bilbaomakers.org/
 
@@ -24,27 +24,40 @@ Licencia: GNU General Public License v3.0 ( mas info en GitHub )
 #pragma endregion
 
 #pragma region INCLUDES
+
+
+
 // Librerias comantadas en proceso de sustitucion por la WiFiMQTTManager
 
+#include <TaskScheduler.h>				// Task Scheduler
+#include <cppQueue.h>					// Libreria para uso de colas.
 #include <ConfigCom.h>					// Para la gestion de la configuracion de las comunicaciones.
 #include <MiProyecto.h>					// Clase de Mi Proyecto
-
+#include <ESP8266WiFi.h>				// Para la gestion de la Wifi
 #include <AsyncMqttClient.h>			// Vamos a probar esta que es Asincrona: https://github.com/marvinroger/async-mqtt-client
 #include <FS.h>							// Libreria Sistema de Ficheros
-#include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
-#include <WiFi.h>						// Para las comunicaciones WIFI del ESP32
 #include <ArduinoJson.h>				// OJO: Tener instalada una version NO BETA (a dia de hoy la estable es la 5.13.4). Alguna pata han metido en la 6
 #include <string>						// Para el manejo de cadenas
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <WiFiUdp.h>					// Para la conexion UDP con los servidores de hora.
 #include <ArduinoOTA.h>					// Actualizaciones de firmware por red.
 
+// Tipo de cola (lib cppQueue)
+#define	IMPLEMENTATION	LIFO
+
+// TaskScheduler options:
+//#define _TASK_TIMECRITICAL    // Enable monitoring scheduling overruns
+#define _TASK_SLEEP_ON_IDLE_RUN // Enable 1 ms SLEEP_IDLE powerdowns between tasks if no callback methods were invoked during the pass 
+#define _TASK_STATUS_REQUEST  // Compile with support for StatusRequest functionality - triggering tasks on status change events in addition to time only
+//#define _TASK_WDT_IDS         // Compile with support for wdt control points and task ids
+//#define _TASK_LTS_POINTER     // Compile with support for local task storage pointer
+//#define _TASK_PRIORITY          // Support for layered scheduling priority
+//#define _TASK_MICRO_RES       // Support for microsecond resolutionMM
+//#define _TASK_DEBUG
+
 #pragma endregion
 
 #pragma region Constantes y configuracion. Modificable aqui por el usuario
-
-// Para el periodo de repeticon de la tarea gestionada por el timer (en microsegundos);
-static const uint64_t TIMER_TICK_US = 200;
 
 // Para el nombre del fichero de configuracion de comunicaciones
 static const String FICHERO_CONFIG_COM = "/MiProyectoCom.json";
@@ -62,15 +75,10 @@ static const int HORA_LOCAL = 2;
 // Para la conexion MQTT
 AsyncMqttClient ClienteMQTT;
 
-// Los manejadores para las tareas. El resto de las cosas que hace nuestro controlador que son un poco mas flexibles que la de los pulsos del Stepper
-TaskHandle_t THandleTaskMiProyectoRun,THandleTaskProcesaComandos,THandleTaskComandosSerieRun,THandleTaskMandaTelemetria,THandleTaskGestionRed,THandleTaskEnviaRespuestas;	
-
 // Manejadores Colas para comunicaciones inter-tareas
-QueueHandle_t ColaComandos,ColaRespuestas;
-
-// Timer Run
-hw_timer_t * timer_stp = NULL;
-portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+//QueueHandle_t ColaComandos,ColaRespuestas;
+Queue ColaComandos(100, 10, IMPLEMENTATION);	// Instantiate queue
+Queue ColaRespuestas(300, 10, IMPLEMENTATION);	// Instantiate queue
 
 // Flag para el estado del sistema de ficheros
 boolean SPIFFStatus = false;
@@ -80,13 +88,16 @@ WiFiUDP UdpNtp;
 
 // Manejador del NTP. Cliente red, servidor, offset zona horaria, intervalo de actualizacion.
 // FALTA IMPLEMENTAR ALGO PARA CONFIGURAR LA ZONA HORARIA
-static NTPClient ClienteNTP(UdpNtp, "europe.pool.ntp.org", HORA_LOCAL * 3600, 3600);
+static NTPClient ClienteNTP(UdpNtp, "pool.ntp.org", HORA_LOCAL * 3600, 3600);
 
 // Para el manejador de ficheros de configuracion
 ConfigCom MiConfig = ConfigCom(FICHERO_CONFIG_COM);
 
 // Objeto de la clase MiProyecto.
 MiProyecto MiProyectoOBJ(FICHERO_CONFIG_PRJ, ClienteNTP);
+
+// Task Scheduler
+Scheduler MiTaskScheduler;
 
 #pragma endregion
 
@@ -97,31 +108,15 @@ void WiFiEventCallBack(WiFiEvent_t event) {
     
 	//Serial.printf("[WiFi-event] event: %d\n", event);
     switch(event) {
-				
-		case SYSTEM_EVENT_STA_START:
-			Serial.println("Conexion WiFi: Iniciando ...");
-			break;
-    	case SYSTEM_EVENT_STA_GOT_IP:
+			
+    	case WIFI_EVENT_STAMODE_GOT_IP:
      	   	Serial.print("Conexion WiFi: Conetado. IP: ");
       	  	Serial.println(WiFi.localIP());
 			ArduinoOTA.begin();
 			Serial.println("Proceso OTA arrancado.");
 			ClienteNTP.begin();
-			
-			if (ClienteNTP.update()){
-
-				Serial.print("Reloj Actualizado via NTP: ");
-				Serial.println(ClienteNTP.getFormattedTime());
-				
-			}
-			else{
-
-				Serial.println("ERR: No se puede actualizar la hora via NTP");
-
-			}
-
         	break;
-    	case SYSTEM_EVENT_STA_DISCONNECTED:
+    	case WIFI_EVENT_STAMODE_DISCONNECTED:
         	Serial.println("Conexion WiFi: Desconetado");
         	break;
 		default:
@@ -231,7 +226,8 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 			//Serial.println(String(ObjJson.measureLength()));
 
 			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-			xQueueSend(ColaComandos, &JSONmessageBuffer, 0);
+			//xQueueSend(ColaComandos, &JSONmessageBuffer, 0);
+			ColaComandos.push(&JSONmessageBuffer);
 			
 		}
 
@@ -265,7 +261,7 @@ void MandaRespuesta(String comando, String payload) {
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
 			
 			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-			xQueueSend(ColaRespuestas, &JSONmessageBuffer, 0); 
+			ColaRespuestas.push(&JSONmessageBuffer); 
 
 }
 
@@ -287,7 +283,7 @@ void MandaTelemetria() {
 			ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
 			
 			// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-			xQueueSendToBack(ColaRespuestas, &JSONmessageBuffer, 0); 
+			ColaRespuestas.push(&JSONmessageBuffer); 
 
 	}
 	
@@ -298,14 +294,7 @@ void MandaTelemetria() {
 #pragma region TASKS
 
 // Tarea para vigilar la conexion con el MQTT y conectar si no estamos conectados
-void TaskGestionRed ( void * parameter ) {
-
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 4000;
-	xLastWakeTime = xTaskGetTickCount ();
-
-
-	while(true){
+void TaskGestionRed () {
 
 		if (WiFi.isConnected() && !ClienteMQTT.connected()){
 			
@@ -313,27 +302,21 @@ void TaskGestionRed ( void * parameter ) {
 			
 		}
 		
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
-
 }
 
 //Tarea para procesar la cola de comandos recibidos
-void TaskProcesaComandos ( void * parameter ){
+void TaskProcesaComandos (){
 
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
-	xLastWakeTime = xTaskGetTickCount ();
 
 	char JSONmessageBuffer[100];
 	
-	while (true){
+
 			
 			// Limpiar el Buffer
 			memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
 
-			if (xQueueReceive(ColaComandos,&JSONmessageBuffer,0) == pdTRUE ){
+			//if (xQueueReceive(ColaComandos,&JSONmessageBuffer,0) == pdTRUE ){
+			if (ColaComandos.pull(&JSONmessageBuffer)){
 
 				String COMANDO;
 				String PAYLOAD;
@@ -439,28 +422,22 @@ void TaskProcesaComandos ( void * parameter ){
 			
 			}
 		
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
-
+	
 }
 
 // Tarea para procesar la cola de respuestas
-void TaskEnviaRespuestas( void * parameter ){
+void TaskEnviaRespuestas(){
 
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
-	xLastWakeTime = xTaskGetTickCount ();
 	
 	char JSONmessageBuffer[300];
 	
 
-	while(true){
+	
 
 		// Limpiar el Buffer
 		memset(JSONmessageBuffer, 0, sizeof JSONmessageBuffer);
 
-		if (xQueueReceive(ColaRespuestas,&JSONmessageBuffer,0) == pdTRUE ){
+		if (ColaRespuestas.pull(&JSONmessageBuffer)){
 
 				DynamicJsonBuffer jsonBuffer;
 
@@ -495,35 +472,32 @@ void TaskEnviaRespuestas( void * parameter ){
 				}
 		}
 
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
-
+	
 }
 
+
+// Esto aqui fuera porque este scheduler es distinto que FreeRTOS. La funcion de tarea se crea y destruye cada ejecucion.
+char sr_buffer[120];
+int16_t sr_buffer_len(sr_buffer!=NULL && sizeof(sr_buffer) > 0 ? sizeof(sr_buffer) - 1 : 0);
+int16_t sr_buffer_pos = 0;
+char* sr_term = "\r\n";
+char* sr_delim = " ";
+int16_t sr_term_pos = 0;
+char* sr_last_token;
+
 // Tarea para los comandos que llegan por el puerto serie
-void TaskComandosSerieRun( void * parameter ){
+void TaskComandosSerieRun(){
 
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
-	xLastWakeTime = xTaskGetTickCount ();
 
-	char sr_buffer[120];
-	int16_t sr_buffer_len(sr_buffer!=NULL && sizeof(sr_buffer) > 0 ? sizeof(sr_buffer) - 1 : 0);
-	int16_t sr_buffer_pos = 0;
-	char* sr_term = "\r\n";
-	char* sr_delim = " ";
-	int16_t sr_term_pos = 0;
-	char* sr_last_token;
 	char* comando = "NA";
 	char* parametro1 = "NA";
 
-	while(true){
-		
 		while (Serial.available()) {
 
 			// leer un caracter del serie (en ASCII)
 			int ch = Serial.read();
+
+			
 
 			// Si es menor de 0 es KAKA
 			if (ch <= 0) {
@@ -537,6 +511,7 @@ void TaskComandosSerieRun( void * parameter ){
 			
 				sr_buffer[sr_buffer_pos++] = ch;
 				//Serial.println("DEBUG: " + String(sr_buffer));
+				
 
 			}
 		
@@ -572,7 +547,8 @@ void TaskComandosSerieRun( void * parameter ){
 				ObjJson.printTo(JSONmessageBuffer, sizeof(JSONmessageBuffer));
 			
 				// Mando el comando a la cola de comandos recibidos que luego procesara la tarea manejadordecomandos.
-				xQueueSend(ColaComandos, &JSONmessageBuffer, 0);
+				Serial.println(JSONmessageBuffer);
+				ColaComandos.push(&JSONmessageBuffer);
 				
 				// Reiniciar los buffers
 				sr_buffer[0] = '\0';
@@ -583,98 +559,39 @@ void TaskComandosSerieRun( void * parameter ){
 		
 
 		}
-	
 		
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
 	
 }
 
 // Tarea para el metodo run del objeto de la cupula.
-void TaskMiProyectoRun( void * parameter ){
+void TaskMiProyectoRun(){
 
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 100;
-	xLastWakeTime = xTaskGetTickCount ();
-	
-	while(true){
 
 		MiProyectoOBJ.Run();
 
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
 
 }
 
 // tarea para el envio periodico de la telemetria
-void TaskMandaTelemetria( void * parameter ){
+void TaskMandaTelemetria(){
 
-	TickType_t xLastWakeTime;
-	const TickType_t xFrequency = 1000;
-	xLastWakeTime = xTaskGetTickCount ();
-	
-
-	while(true){
-
+		
 		MandaTelemetria();
 		
-		vTaskDelayUntil( &xLastWakeTime, xFrequency );
-
-	}
+		
 	
 }
 
-// Funcion de manejo del Timer con soporte para unidad de coma flotante
 
-uint32_t cp0_regs[18];
+// Definir aqui las tareas (no en SETUP como en FreeRTOS)
 
-void IRAM_ATTR timer_isr() {
+Task TaskProcesaComandosHandler (100, TASK_FOREVER, &TaskProcesaComandos, &MiTaskScheduler, false);
+Task TaskEnviaRespuestasHandler (100, TASK_FOREVER, &TaskEnviaRespuestas, &MiTaskScheduler, false);
+Task TaskMiProyectoRunHandler (100, TASK_FOREVER, &TaskMiProyectoRun, &MiTaskScheduler, false);
+Task TaskMandaTelemetriaHandler (5000, TASK_FOREVER, &TaskMandaTelemetria, &MiTaskScheduler, false);
+Task TaskComandosSerieRunHandler (100, TASK_FOREVER, &TaskComandosSerieRun, &MiTaskScheduler, false);
+Task TaskGestionRedHandler (4000, TASK_FOREVER, &TaskGestionRed, &MiTaskScheduler, false);	
 
-	// Para que esta funcion no sea interrupida
-	portENTER_CRITICAL(&timerMux);
-
-	 // get FPU state
-  	uint32_t cp_state = xthal_get_cpenable();
-  
-  	if(cp_state) {
-    	
-		// Salvar los registros actuales de la FPU si hay
-    	xthal_save_cp0(cp0_regs);
-
-  	} 
-	
-	else {
-    	
-		// Habilitar la FPU
-    	xthal_set_cpenable(1);
-
-  	}
-	
-  
-	// Aqui podemos hacer la cosa que queramos que haga el timer.
-	
-	
-
- 	if(cp_state) {
-    	
-		// restaurar los registros de la FPU
-    	xthal_restore_cp0(cp0_regs);
-
-  	} 
-	
-	else {
-    
-		// Apagar la FPU
-    	xthal_set_cpenable(0);
-
-  	}
-
-	// Deshabilitar el modo no interrupcion
-	portEXIT_CRITICAL(&timerMux);
-
-}
 
 
 #pragma endregion
@@ -700,8 +617,10 @@ void setup() {
 	// Iniciar la Wifi
 	WiFi.begin();
 
-	// Iniciar el sistema de ficheros y formatear si no lo esta
-	SPIFFStatus = SPIFFS.begin(true);
+	//MiTaskScheduler.init();
+
+	// Iniciar el sistema de ficheros
+	SPIFFStatus = SPIFFS.begin();
 
 	if (SPIFFS.begin()){
 
@@ -724,8 +643,7 @@ void setup() {
 
 			// Tarea de gestion de la conexion MQTT. Lanzamos solo si conseguimos leer la configuracion
 
-			xTaskCreatePinnedToCore(TaskGestionRed,"MQTT_Conectar",3000,NULL,1,&THandleTaskGestionRed,0);
-
+			TaskGestionRedHandler.enable();
 	
 		}
 
@@ -736,34 +654,19 @@ void setup() {
 
 	else {
 
-		SPIFFS.begin(true);
+		SPIFFS.format();
+		Serial.println("No se puede iniciar el sistema de ficheros, formateando ...");
 
 	}
-
-	// COLAS
-	ColaComandos = xQueueCreate(10,100);
-	ColaRespuestas = xQueueCreate(10,300);
-
+	
 	// TASKS
-	Serial.println("Creando tareas del sistema.");
-	
-	// Tareas CORE0
-	
-	xTaskCreatePinnedToCore(TaskProcesaComandos,"ProcesaComandos",3000,NULL,1,&THandleTaskProcesaComandos,0);
-	xTaskCreatePinnedToCore(TaskEnviaRespuestas,"EnviaMQTT",2000,NULL,1,&THandleTaskEnviaRespuestas,0);
-	xTaskCreatePinnedToCore(TaskMiProyectoRun,"MiProyectoRun",2000,NULL,1,&THandleTaskMiProyectoRun,0);
-	xTaskCreatePinnedToCore(TaskMandaTelemetria,"MandaTelemetria",2000,NULL,1,&THandleTaskMandaTelemetria,0);
-	xTaskCreatePinnedToCore(TaskComandosSerieRun,"ComandosSerieRun",1000,NULL,1,&THandleTaskComandosSerieRun,0);
-	
-	// Tareas CORE1
-
-
-	// Timer
-
-	timer_stp = timerBegin(0, 80, true);
-  	timerAttachInterrupt(timer_stp, &timer_isr, true);
-  	timerAlarmWrite(timer_stp, TIMER_TICK_US, true);
-  	timerAlarmEnable(timer_stp);
+	Serial.println("Habilitando tareas del sistema.");
+		
+	TaskProcesaComandosHandler.enable();
+	TaskEnviaRespuestasHandler.enable();
+	TaskMiProyectoRunHandler.enable();
+	TaskMandaTelemetriaHandler.enable();
+	TaskComandosSerieRunHandler.enable();
 	
 	// Init Completado.
 	Serial.println("Setup Completado.");
@@ -775,12 +678,14 @@ void setup() {
 #pragma region Funcion Loop() de ARDUINO
 
 // Funcion LOOP de Arduino
-// Se ejecuta en el Core 1
-// Como todo se getiona por Task aqui no se pone NADA
+
+
 void loop() {
 
-	ArduinoOTA.handle();	
-			
+	ArduinoOTA.handle();
+	MiTaskScheduler.execute();
+	ClienteNTP.update();
+
 }
 
 #pragma endregion

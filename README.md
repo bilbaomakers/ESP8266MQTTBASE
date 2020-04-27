@@ -2,7 +2,7 @@
 
 # Programa base para utilizar de base en tus proyectos MQTT con ESP8266
 
-Desarrollado con Visual Code + PlatformIO + Plataforma Espressif Arduino
+Desarrollado con Visual Code + PlatformIO + Plataforma Espressif Arduino + ESP8266 RTOS SDK
 
 Implementa las comunicaciones WIFI y MQTT asi como la configuracion de las mismas via comandos
 

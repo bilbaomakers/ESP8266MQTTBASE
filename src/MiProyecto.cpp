@@ -4,8 +4,7 @@
 #include <ArduinoJson.h>				// OJO: Tener instalada una version NO BETA (a dia de hoy la estable es la 5.13.4). Alguna pata han metido en la 6
 #include <NTPClient.h>					// Para la gestion de la hora por NTP
 #include <WiFiUdp.h>					// Para la conexion UDP con los servidores de hora.
-#include <SPIFFS.h>						// Libreria para sistema de ficheros SPIFFS
-
+#include <FS.h>							// Libreria Sistema de Ficheros
 
 MiProyecto::MiProyecto(String fich_config_MiProyecto, NTPClient& ClienteNTP) : ClienteNTP(ClienteNTP) {
 
@@ -132,7 +131,7 @@ boolean MiProyecto::LeeConfig(){
 void MiProyecto::Run() {
 	
 	// UpTime Minutos
-	t_uptime = esp_timer_get_time() / 1000000;
+	t_uptime = 0;
 	
 	if (HayQueSalvar){
 
