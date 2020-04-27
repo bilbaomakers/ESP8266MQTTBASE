@@ -1,8 +1,8 @@
-# ESP32MQTTBASE 1.1
+# ESP8266MQTTBASE 1.1
 
-# Programa base para utilizar de base en tus proyectos MQTT con ESP32
+# Programa base para utilizar de base en tus proyectos MQTT con ESP8266
 
-Desarrollado con Visual Code + PlatformIO + Plataforma Espressif 32 Arduino
+Desarrollado con Visual Code + PlatformIO + Plataforma Espressif Arduino
 
 Implementa las comunicaciones WIFI y MQTT asi como la configuracion de las mismas via comandos
 
@@ -14,9 +14,9 @@ Implementa un timer con soporte para FPU (unidad de coma flotante) para utilizar
 
 Incluye la clase MiProyecto para desarrollar nuestro proyecto.
 
-Author: Diego Maroto - BilbaoMakers 2019 - info@bilbaomakers.org - dmarofer@diegomaroto.net
+Author: Diego Maroto - BilbaoMakers 2020 - info@bilbaomakers.org - dmarofer@diegomaroto.net
 
-https://github.com/bilbaomakers/ESP32MQTTBASE
+https://github.com/bilbaomakers/ESP8266MQTTBASE
 
 https://bilbaomakers.org/
 
