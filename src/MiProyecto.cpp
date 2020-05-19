@@ -125,10 +125,14 @@ boolean MiProyecto::LeeConfig(){
 
 }
 
-// Metodos (funciones). TODAS Salvo la RUN() deben ser ASINCRONAS. Jamas se pueden quedar uno esperando. Esperar a lo bobo ESTA PROHIBIDISISISISMO, tenemos MUCHAS cosas que hacer ....
+// Cosas a ejecutar en intervalo lento
+void MiProyecto::TaskRun(){
 
-// Esta funcion se lanza desde una Task y hace las "cosas periodicas de la clase". No debe atrancarse nunca tampoco por supuesto (ni esta ni ninguna)
-void MiProyecto::Run() {
+
+}
+
+// A ejecutar lo mas rapido posible
+void MiProyecto::RunFast() {
 	
 	// UpTime Minutos
 	t_uptime = 0;

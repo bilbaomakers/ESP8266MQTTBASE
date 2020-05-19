@@ -37,7 +37,10 @@ public:
 
 	// Funciones Publicas
 	String MiEstadoJson(int categoria);								// Devuelve un JSON con los estados en un array de 100 chars (la libreria MQTT no puede con mas de 100)
-	void Run();														// Actualiza las propiedades de estado de este objeto en funcion del estado de motores y sensores
+	
+	void TaskRun();													// A ejecutar en intervalo lento
+	void RunFast();													// A ejecutar lo mas rapido posible
+
     void SetRespondeComandoCallback(RespondeComandoCallback ref);	// Definir la funcion para pasarnos la funcion de callback del enviamensajes
 	boolean LeeConfig();
 	boolean SalvaConfig();
